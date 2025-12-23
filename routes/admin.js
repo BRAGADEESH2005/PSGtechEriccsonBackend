@@ -24,7 +24,7 @@ router.post('/proposals', verifyAdmin, async (req, res) => {
   }
 });
 
-// Update proposal status
+// Update proposal status (single team)
 router.post('/proposals/:id/status', verifyAdmin, async (req, res) => {
   try {
     const { status } = req.body;
@@ -39,23 +39,77 @@ router.post('/proposals/:id/status', verifyAdmin, async (req, res) => {
   }
 });
 
-// Select 15 teams
+// Toggle team selection (new route)
+router.post('/toggle-selection/:id', verifyAdmin, async (req, res) => {
+  try {
+    const proposal = await Proposal.findById(req.params.id);
+    
+    if (!proposal) {
+      return res.status(404).json({ message: 'Proposal not found' });
+    }
+
+    // Toggle between selected and submitted
+    const newStatus = proposal.status === 'selected' ? 'submitted' : 'selected';
+    
+    // Check if we're trying to select and already have 15 teams
+    if (newStatus === 'selected') {
+      const selectedCount = await Proposal.countDocuments({ status: 'selected' });
+      if (selectedCount >= 15) {
+        return res.status(400).json({ 
+          message: 'Maximum of 15 teams already selected',
+          selectedCount 
+        });
+      }
+    }
+
+    proposal.status = newStatus;
+    await proposal.save();
+
+    res.json({ 
+      success: true,
+      proposal,
+      message: `Team ${newStatus === 'selected' ? 'selected' : 'deselected'} successfully`
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error toggling selection', error: error.message });
+  }
+});
+
+// Select 15 teams (batch selection)
 router.post('/select-teams', verifyAdmin, async (req, res) => {
   try {
     const { teamIds } = req.body;
+    
+    if (!Array.isArray(teamIds) || teamIds.length !== 15) {
+      return res.status(400).json({ message: 'Exactly 15 team IDs required' });
+    }
     
     // Reset all to submitted first
     await Proposal.updateMany({}, { status: 'submitted' });
     
     // Select specified teams
-    await Proposal.updateMany(
+    const result = await Proposal.updateMany(
       { _id: { $in: teamIds.slice(0, 15) } },
       { status: 'selected' }
     );
     
-    res.json({ message: 'Teams selected successfully' });
+    res.json({ 
+      success: true,
+      message: 'Teams selected successfully',
+      modifiedCount: result.modifiedCount
+    });
   } catch (error) {
     res.status(500).json({ message: 'Error selecting teams', error: error.message });
+  }
+});
+
+// Get selected teams count
+router.post('/selected-count', verifyAdmin, async (req, res) => {
+  try {
+    const count = await Proposal.countDocuments({ status: 'selected' });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ message: 'Error getting selected count', error: error.message });
   }
 });
 
